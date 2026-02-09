@@ -28,9 +28,10 @@ helm install signoz signoz/signoz -n signoz -f k8s/signoz/values.yaml
 ## 2. Centralized Logging Configuration
 
 The provided `k8s/signoz/values.yaml` configures the central **SigNoz OTel Collector** to:
--   Directly scrape logs from Kubernetes nodes via HostPath mounts.
--   Add Kubernetes metadata (`namespace`, `service.name`, etc.).
--   This setup is optimized for **single-node** clusters (like KillerCoda). For multi-node clusters, installing the `k8s-infra` agent is recommended.
+-   **Application Logs**: Scrape logs from `/var/log/pods/*` (standard container output).
+-   **Infrastructure Logs**: Scrape system logs from `/var/log/*.log` (e.g., kubelet, system daemons).
+-   **Enrichment**: Add Kubernetes metadata and Host/Node information via `k8sattributes` and `resourcedetection`.
+-   **Optimized for Single-Node**: This setup is perfect for tests in environments like KillerCoda.
 
 ### How it works:
 -   **Namespace Tagging**: The `k8sattributes` processor extracts the namespace from the Kubernetes API or pod labels.
