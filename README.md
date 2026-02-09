@@ -59,18 +59,26 @@ Deploy the sample microservice to verify logging:
 kubectl apply -f k8s/sample-app/service.yaml
 ```
 
-1.  Port-forward the SigNoz Query Service:
-    `kubectl port-forward -n signoz svc/signoz-query-service 3301:3301`
-2.  Access the UI at `http://localhost:3301`.
+1.  Port-forward the SigNoz Service:
+    `kubectl port-forward -n signoz svc/signoz 8080:8080`
+2.  Access the UI at `http://localhost:8080`.
 3.  Go to the **Logs** tab.
 4.  Filter by `k8s_namespace_name` = `sample-app` or `service_name` = `log-generator-service`.
 
 ## 5. Retention Policy
 
-### Via UI (Recommended)
+### Via values.yaml (Configured)
+In the provided `k8s/signoz/values.yaml`, retention is set to 7 days:
+```yaml
+clickhouse:
+  configData:
+    ttl_for_logs: 7
+```
+
+### Via UI (Alternative)
 1.  Go to **Settings** > **General** in the SigNoz UI.
 2.  Locate the **Log Retention** section.
-3.  Set the desired number of days (N days).
+3.  Set the desired number of days.
 
 ### Via ClickHouse TTL (Advanced)
 The retention is ultimately managed by ClickHouse TTL. You can set this in the Helm chart or by running a SQL command in ClickHouse:
