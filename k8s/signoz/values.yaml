@@ -1,8 +1,8 @@
-# global -- Global override values for the chart.
+# global -- Global overrides
 global:
   storageClass: local-path
 
-# clickhouse -- ClickHouse settings for log storage and retention.
+# clickhouse -- Log storage and 7-day retention
 clickhouse:
   enabled: true
   configData:
@@ -10,7 +10,7 @@ clickhouse:
   persistence:
     storageClass: local-path
 
-# signoz -- SigNoz UI and Query Service settings.
+# signoz -- UI settings with NodePort 30080
 signoz:
   service:
     type: NodePort
@@ -18,23 +18,60 @@ signoz:
   persistence:
     storageClass: local-path
 
-# otelAgent -- Configuration for the Log Scraper (DaemonSet).
-otelAgent:
+# otelCollector -- Central Collector configured to scrape logs
+# Note: In single-node clusters (like KillerCoda), this collects logs from all pods.
+otelCollector:
   enabled: true
+  # Necessary for the collector to identify pod metadata
+  serviceAccount:
+    create: true
+  
+  # Mount host paths to read container logs
+  extraVolumes:
+    - name: varlogpods
+      hostPath:
+        path: /var/log/pods
+    - name: varlibdockercontainers
+      hostPath:
+        path: /var/lib/docker/containers
+  extraVolumeMounts:
+    - name: varlogpods
+      mountPath: /var/log/pods
+      readOnly: true
+    - name: varlibdockercontainers
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+
+  # OpenTelemetry Collector Pipeline Configuration
   config:
     receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      
       filelog:
         include:
           - /var/log/pods/*/*/*.log
         exclude:
           - /var/log/pods/signoz_*/*/*.log
-        # Automatically parse the log file path to extract namespace and pod info
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        # Parse the file path to extract Kubernetes metadata
         operators:
           - type: regex_parser
             regex: '^/var/log/pods/(?P<namespace>[^/]+)_(?P<pod_name>[^/]+)_(?P<uid>[a-z0-9-]+)/(?P<container_name>[^/]+)/(?P<restart_count>\d+)\.log$'
             parse_from: attributes["log.file.path"]
-    
+
     processors:
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+      
+      # Add Kubernetes metadata (Namespace, Service Name, etc.)
       k8sattributes:
         extract:
           metadata:
@@ -42,7 +79,6 @@ otelAgent:
             - k8s.pod.name
             - k8s.deployment.name
             - container.name
-          # Explicitly tag logs with 'service.name' from Pod labels
           labels:
             - tag_name: service.name
               key: service.name
@@ -59,15 +95,28 @@ otelAgent:
               - from: connection
 
     exporters:
-      otlp:
-        # Export logs to the central SigNoz Collector
-        endpoint: "signoz-otel-collector.signoz.svc.cluster.local:4317"
-        tls:
-          insecure: true
+      clickhousetraces:
+        datasource: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_TRACE_DATABASE}
+        use_new_schema: true
+      signozclickhousemetrics:
+        dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_DATABASE}
+        timeout: 45s
+      clickhouselogsexporter:
+        dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_LOG_DATABASE}
+        timeout: 10s
+        use_new_schema: true
 
     service:
       pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [clickhousetraces]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [signozclickhousemetrics]
         logs:
-          receivers: [filelog]
+          receivers: [otlp, filelog]
           processors: [k8sattributes, batch]
-          exporters: [otlp]
+          exporters: [clickhouselogsexporter]
