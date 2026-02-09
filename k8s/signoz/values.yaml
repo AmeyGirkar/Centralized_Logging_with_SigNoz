@@ -26,23 +26,17 @@ otelCollector:
   serviceAccount:
     create: true
   
-  # Mount host paths to read container and system logs
+  # Mount host paths to read container logs
   extraVolumes:
     - name: varlogpods
       hostPath:
         path: /var/log/pods
-    - name: varlibdockercontainers
-      hostPath:
-        path: /var/lib/docker/containers
     - name: varlog
       hostPath:
         path: /var/log
   extraVolumeMounts:
     - name: varlogpods
       mountPath: /var/log/pods
-      readOnly: true
-    - name: varlibdockercontainers
-      mountPath: /var/lib/docker/containers
       readOnly: true
     - name: varlog
       mountPath: /var/log
@@ -61,23 +55,15 @@ otelCollector:
       filelog:
         include:
           - /var/log/pods/*/*/*.log
-          - /var/log/*.log
         exclude:
           - /var/log/pods/signoz_*/*/*.log
         start_at: end
         include_file_path: true
-        include_file_name: false
-        # Parse the file path to extract Kubernetes metadata for app logs
-        # or categorize system logs
+        # Parse the file path to extract Kubernetes metadata for containerd
         operators:
           - type: regex_parser
-            regex: '^/var/log/pods/(?P<namespace>[^/]+)_(?P<pod_name>[^/]+)_(?P<uid>[a-z0-9-]+)/(?P<container_name>[^/]+)/(?P<restart_count>\d+)\.log$'
+            regex: '^/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_(?P<uid>[a-z0-9-]+)/(?P<container>[^/]+)/\d+\.log$'
             parse_from: attributes["log.file.path"]
-            if: 'attributes["log.file.path"] matches "^/var/log/pods/.*"'
-          - type: move
-            from: attributes["log.file.path"]
-            to: attributes["source"]
-            if: 'attributes["log.file.path"] matches "^/var/log/[^/]+\\.log$"'
 
     processors:
       batch:
@@ -120,7 +106,7 @@ otelCollector:
       signozclickhousemetrics:
         dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_DATABASE}
         timeout: 45s
-      clickhouselogsexporter:
+      signozclickhouselogs:
         dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_LOG_DATABASE}
         timeout: 10s
         use_new_schema: true
@@ -138,4 +124,4 @@ otelCollector:
         logs:
           receivers: [otlp, filelog]
           processors: [resourcedetection, k8sattributes, batch]
-          exporters: [clickhouselogsexporter]
+          exporters: [signozclickhouselogs]
