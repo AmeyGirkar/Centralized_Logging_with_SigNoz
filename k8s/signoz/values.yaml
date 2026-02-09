@@ -55,8 +55,12 @@ otelCollector:
       filelog:
         include:
           - /var/log/pods/*/*/*.log
+          - /var/log/*.log
         exclude:
           - /var/log/pods/signoz_*/*/*.log
+          - /var/log/pods/kube-system_*/*/*.log
+          - /var/log/pods/hotrod_*/*/*.log
+          - /var/log/pods/locust_*/*/*.log
         start_at: end
         include_file_path: true
         # Parse the file path to extract Kubernetes metadata for containerd
@@ -64,6 +68,12 @@ otelCollector:
           - type: regex_parser
             regex: '^/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_(?P<uid>[a-z0-9-]+)/(?P<container>[^/]+)/\d+\.log$'
             parse_from: attributes["log.file.path"]
+            if: 'attributes["log.file.path"] matches "^/var/log/pods/.*"'
+          # Categorize system logs
+          - type: move
+            from: attributes["log.file.path"]
+            to: attributes["source"]
+            if: 'attributes["log.file.path"] matches "^/var/log/[^/]+\\.log$"'
 
     processors:
       batch:
@@ -82,6 +92,7 @@ otelCollector:
           metadata:
             - k8s.namespace.name
             - k8s.pod.name
+            - k8s.pod.uid
             - k8s.deployment.name
             - container.name
           labels:
