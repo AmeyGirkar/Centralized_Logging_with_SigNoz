@@ -117,7 +117,7 @@ otelCollector:
       signozclickhousemetrics:
         dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_DATABASE}
         timeout: 45s
-      signozclickhouselogs:
+      clickhouselogsexporter:
         dsn: tcp://${env:CLICKHOUSE_USER}:${env:CLICKHOUSE_PASSWORD}@${env:CLICKHOUSE_HOST}:${env:CLICKHOUSE_PORT}/${env:CLICKHOUSE_LOG_DATABASE}
         timeout: 10s
         use_new_schema: true
@@ -135,4 +135,4 @@ otelCollector:
         logs:
           receivers: [otlp, filelog]
           processors: [resourcedetection, k8sattributes, batch]
-          exporters: [signozclickhouselogs]
+          exporters: [clickhouselogsexporter]
