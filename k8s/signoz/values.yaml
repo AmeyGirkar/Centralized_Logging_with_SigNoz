@@ -1,0 +1,64 @@
+# SigNoz Helm Values for Centralized Logging
+# These values ensure logs are collected from all pods and tagged with K8s metadata.
+
+# Enable log collection in the OTel Agent (DaemonSet)
+otelAgent:
+  enabled: true
+  config:
+    receivers:
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+        exclude:
+          # Exclude logs from SigNoz's own namespace to prevent high volume/circular logging if desired
+          - /var/log/pods/signoz_*/*/*.log
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        # Multi-line log parsing can be added here if needed
+        operators:
+          - type: regex_parser
+            regex: '^/var/log/pods/(?P<namespace>[^/]+)_(?P<pod_name>[^/]+)_(?P<uid>[a-z0-9-]+)/(?P<container_name>[^/]+)/(?P<restart_count>\d+)\.log$'
+            parse_from: attributes["log.file.path"]
+
+    processors:
+      k8sattributes:
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.cronjob.name
+            - k8s.job.name
+            - k8s.node.name
+            - container.name
+        # Assign service.name based on standard k8s labels if available
+        passthrough: false
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+
+    service:
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [k8sattributes, batch]
+          exporters: [otlp]
+
+# ClickHouse Retention Configuration
+# Note: SigNoz also allows managing retention via the UI (Settings > General).
+# To set it via ClickHouse TTL directly:
+clickhouse:
+  configData:
+    # Example: Retain logs for 7 days
+    # This sets the TTL for the logs tables if the chart supports it, 
+    # otherwise it should be configured via SigNoz UI for better management.
+    ttl_for_logs: 7
