@@ -1,4 +1,6 @@
 # k8s-infra-values.yaml -- Configuration for SigNoz Agents
+otelCollectorEndpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
+
 otelCollector:
   enabled: false # Disable the standalone collector, we use the one in 'signoz'
 
@@ -22,7 +24,3 @@ presets:
     enabled: true
   clusterMetrics:
     enabled: true
-
-# Redirect all data to the central collector installed by the 'signoz' chart
-otlpExporter:
-  endpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
