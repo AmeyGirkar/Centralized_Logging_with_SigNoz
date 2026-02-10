@@ -1,17 +1,17 @@
 # Centralized Logging with SigNoz on Kubernetes
 
-This repository contains the configuration and instructions to deploy SigNoz on a Kubernetes cluster for centralized logging, with support for log tagging (Namespace, Service name) and retention.
+This repository contains the configuration and instructions to deploy SigNoz on a Kubernetes cluster for centralized logging, with support for multi-node clusters via infrastructure agents.
 
 ## Cluster Prerequisites
 
 -   **Kubernetes Cluster**: Version 1.21 or higher.
 -   **Helm**: Version 3.0 or higher.
--   **Resources**: SigNoz requires significant resources. Ensure your cluster has at least 4 vCPUs and 8GB RAM available for a basic deployment (ClickHouse, OTel Collector, Query Service, etc.).
--   **Storage**: A Default StorageClass is required for ClickHouse and Query Service persistence.
+-   **Resources**: SigNoz requires significant resources (at least 4 vCPUs and 8GB RAM).
+-   **Storage**: A Default StorageClass is required for persistence.
 
-## 1. Deploy SigNoz
+## 1. Deploy SigNoz (Platform)
 
-Follow these steps to deploy SigNoz using the provided `values.yaml`:
+The main chart installs the SigNoz backend, UI, and Clickhouse.
 
 ```bash
 # Add SigNoz Helm repository
@@ -21,93 +21,51 @@ helm repo update
 # Create namespace
 kubectl create namespace signoz
 
-# Install SigNoz
-helm install signoz signoz/signoz -n signoz -f k8s/signoz/values.yaml
+# Install SigNoz Platform
+helm upgrade --install signoz signoz/signoz -n signoz -f k8s/signoz/values.yaml
 ```
 
-## 2. Centralized Logging Configuration
+## 2. Deploy SigNoz k8s-infra (Agents for Logs & Metrics)
 
-The provided `k8s/signoz/values.yaml` configures the central **SigNoz OTel Collector** to:
--   **Application Logs**: Scrape logs from `/var/log/pods/*` (standard container output).
--   **Infrastructure Logs**: Scrape system logs from `/var/log/*.log` (e.g., kubelet, system daemons).
--   **Enrichment**: Add Kubernetes metadata and Host/Node information via `k8sattributes` and `resourcedetection`.
--   **Optimized for Single-Node**: This setup is perfect for tests in environments like KillerCoda.
+The `k8s-infra` chart installs the agents as a **DaemonSet** on every node. This is required to collect logs from your application pods.
 
-### How it works:
--   **Namespace Tagging**: The `k8sattributes` processor extracts the namespace from the Kubernetes API or pod labels.
--   **Service Name Tagging**: SigNoz looks for the `service.name` attribute. If your pods have the label `service.name`, it will be automatically picked up.
-
-## 3. How to Onboard a New Microservice
-
-To ensure logs from your microservice are properly tagged and searchable in SigNoz:
-
-1.  **Label your Pods**: Add the label `service.name` to your pod template.
-2.  **Standard Labels**: SigNoz also attempts to derive service names from `app.kubernetes.io/name` or the Deployment name if `service.name` is missing.
-
-**Example Pod Spec:**
-```yaml
-template:
-  metadata:
-    labels:
-      service.name: "my-awesome-service"
+```bash
+# Install Infrastructure Agents
+helm upgrade --install signoz-infra signoz/k8s-infra -n signoz -f k8s/signoz/k8s-infra-values.yaml
 ```
+
+## 3. Centralized Logging Configuration
+
+The `k8s/signoz/k8s-infra-values.yaml` configures the agents to:
+-   **Application Logs**: Scrape logs from all pods (except `kube-system`).
+-   **Metadata**: Automatically tag logs with Namespace, Pod Name, and Service Name.
+-   **Multi-node Support**: Works reliably on remote clusters (not just single-node).
 
 ## 4. Verification
 
-Deploy the sample microservice to verify logging:
+1.  **Check Pods**: Verify both the platform and the agents are running.
+    ```bash
+    kubectl get pods -n signoz
+    ```
+    *You should see `signoz-otel-collector-*` AND multiple `signoz-infra-otel-agent-*` pods.*
 
-```bash
-kubectl apply -f k8s/sample-app/service.yaml
-```
+2.  **Access UI**: The SigNoz UI is on NodePort `30080`.
+    Access at `http://<NODE_IP>:30080`.
 
-1.  The SigNoz UI is configured on a static NodePort: `30080`.
-2.  Access the UI at `http://<NODE_IP>:30080`.
-3.  Go to the **Logs** tab.
-4.  Filter by `k8s_namespace_name` = `sample-app` or `service_name` = `log-generator-service`.
+3.  **Check Logs**: Go to the **Logs** tab and filter by `k8s_namespace_name`.
 
 ## 5. Retention Policy
 
-### Via values.yaml (Configured)
-In the provided `k8s/signoz/values.yaml`, retention is set to 7 days:
+Retention is configured for 7 days in `k8s/signoz/values.yaml`:
 ```yaml
 clickhouse:
   configData:
     ttl_for_logs: 7
 ```
 
-### Via UI (Alternative)
-1.  Go to **Settings** > **General** in the SigNoz UI.
-2.  Locate the **Log Retention** section.
-3.  Set the desired number of days.
+## 6. Troubleshooting
 
-### Via ClickHouse TTL (Advanced)
-The retention is ultimately managed by ClickHouse TTL. You can set this in the Helm chart or by running a SQL command in ClickHouse:
-
-```sql
-ALTER TABLE signoz_logs.logs MODIFY COLUMN timestamp TTL timestamp + INTERVAL 7 DAY;
-```
-*(Default retention is often 30 days in SigNoz).*
-
-## 6. Troubleshooting Missing Logs
-
-If logs are not appearing in the SigNoz dashboard, check the following:
-
-### 1. Agent connection to Collector
-The `otelAgent` (DaemonSet) must be able to reach the `otelCollector` (Deployment).
-Check the agent pods for any "connection refused" or "context deadline exceeded" errors:
-```bash
-kubectl logs -n signoz -l app.kubernetes.io/component=otel-agent
-```
-
-### 2. Ingestion Key (Tokens)
-- **Self-Hosted (Local/KillerCoda)**: No ingestion key is required by default. The configuration I provided points the agent directly to the internal collector without authentication.
-- **SigNoz Cloud**: If you are sending logs to SigNoz Cloud, you **must** provide an ingestion key. You can find this in your SigNoz Cloud dashboard under **Settings** > **Ingestion Keys**.
-
-### 3. Service Name Tagging
-Ensure your Pods have the `service.name` label. If missing, SigNoz might not categorize the logs correctly under the "Services" filter.
-
-### 4. Namespace Filtering
-Verify that the `sample-app` namespace exists and logs are being generated by the pod:
-```bash
-kubectl logs -n sample-app -l service.name=log-generator-service
-```
+If logs are missing:
+1.  Check if agents are running: `kubectl get ds -n signoz`.
+2.  Check agent logs for errors: `kubectl logs -n signoz -l app.kubernetes.io/component=otel-agent`.
+3.  Ensure the `otelCollector` endpoint is reachable from the agents.
