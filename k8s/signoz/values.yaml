@@ -19,7 +19,6 @@ signoz:
     storageClass: local-path
 
 # otelCollector -- Central Collector configured to scrape logs
-# Note: In single-node clusters (like KillerCoda), this collects logs from all pods.
 otelCollector:
   enabled: true
   # Necessary for the collector to identify pod metadata
@@ -58,7 +57,7 @@ otelCollector:
         exclude:
           - /var/log/pods/signoz_*/*/*.log
           - /var/log/pods/kube-system_*/*/*.log
-        start_at: beginning
+        start_at: end
         include_file_path: true
         # Robust parsing for k8s pod logs
         operators:
@@ -85,7 +84,6 @@ otelCollector:
             - k8s.pod.name
             - k8s.pod.uid
             - k8s.deployment.name
-            - container.name
           labels:
             - tag_name: service.name
               key: service.name
