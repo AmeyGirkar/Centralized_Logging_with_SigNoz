@@ -18,39 +18,22 @@ signoz:
   persistence:
     storageClass: local-path
 
-# otelCollector -- Central Collector configured to scrape logs
-otelCollector:
+# otelAgent -- DaemonSet for cluster-wide collection (Logs & Metrics)
+otelAgent:
   enabled: true
-  # Necessary for the collector to identify pod metadata
-  serviceAccount:
-    create: true
-  
   # Mount host paths to read container logs
   extraVolumes:
     - name: varlogpods
       hostPath:
         path: /var/log/pods
-    - name: varlog
-      hostPath:
-        path: /var/log
   extraVolumeMounts:
     - name: varlogpods
       mountPath: /var/log/pods
       readOnly: true
-    - name: varlog
-      mountPath: /var/log
-      readOnly: true
 
-  # OpenTelemetry Collector Pipeline Configuration
   config:
     receivers:
-      otlp:
-        protocols:
-          grpc:
-            endpoint: 0.0.0.0:4317
-          http:
-            endpoint: 0.0.0.0:4318
-      
+      # Scraping logs from all pods
       filelog:
         include:
           - /var/log/pods/*/*/*.log
@@ -59,24 +42,32 @@ otelCollector:
           - /var/log/pods/kube-system_*/*/*.log
         start_at: end
         include_file_path: true
-        # Robust parsing for k8s pod logs
         operators:
-          - type: regex_parser
-            regex: '^/var/log/pods/(?P<k8s_namespace_name>[^_]+)_(?P<k8s_pod_name>[^_]+)_(?P<k8s_pod_uid>[a-z0-9-]+)/(?P<container_name>[^/]+)/(?P<restart_count>\d+)\.log$'
-            parse_from: attributes["log.file.path"]
+          - type: container
+            id: container-parser
+      
+      # Scraping host and kubelet metrics
+      hostmetrics:
+        scrapers:
+          cpu:
+          load:
+          memory:
+          disk:
+          network:
+          filesystem:
+      kubeletstats:
+        endpoint: ${env:K8S_NODE_IP}:10250
+        auth_type: tls
+        insecure_skip_verify: true
 
     processors:
       batch:
-        send_batch_size: 10000
+        send_batch_size: 1000
         timeout: 10s
-      
-      # Detect host/node information
       resourcedetection:
         detectors: [env, system]
         timeout: 2s
         override: false
-
-      # Add Kubernetes metadata (Namespace, Service Name, etc.)
       k8sattributes:
         extract:
           metadata:
@@ -88,16 +79,40 @@ otelCollector:
             - tag_name: service.name
               key: service.name
               from: pod
-        passthrough: false
-        pod_association:
-          - sources:
-              - from: resource_attribute
-                name: k8s.pod.ip
-          - sources:
-              - from: resource_attribute
-                name: k8s.pod.uid
-          - sources:
-              - from: connection
+
+    exporters:
+      otlp:
+        endpoint: "signoz-otel-collector.signoz.svc.cluster.local:4317"
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp, hostmetrics, kubeletstats]
+          processors: [resourcedetection, k8sattributes, batch]
+          exporters: [otlp]
+        logs:
+          receivers: [otlp, filelog]
+          processors: [resourcedetection, k8sattributes, batch]
+          exporters: [otlp]
+
+# otelCollector -- Central Gateway to ClickHouse
+otelCollector:
+  enabled: true
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    
+    processors:
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
 
     exporters:
       clickhousetraces:
@@ -122,6 +137,6 @@ otelCollector:
           processors: [batch]
           exporters: [signozclickhousemetrics]
         logs:
-          receivers: [otlp, filelog]
-          processors: [resourcedetection, k8sattributes, batch]
+          receivers: [otlp]
+          processors: [batch]
           exporters: [clickhouselogsexporter]
