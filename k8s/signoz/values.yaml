@@ -18,30 +18,36 @@ signoz:
   persistence:
     storageClass: local-path
 
-# presets -- Standard SigNoz configurations for log/metric collection
-presets:
-  logsCollection:
-    enabled: true
-    blacklist:
-      enabled: true
-      signozLogs: false
-      namespaces:
-        - kube-system
-      pods:
-        - hotrod
-        - locust
-      containers: []
-      additionalExclude: []
-  kubernetesAttributes:
-    enabled: true
-
-# otelAgent -- DaemonSet for cluster-wide collection
-otelAgent:
+# k8s-infra -- Infrastructure collection (Agents/DaemonSet)
+k8s-infra:
   enabled: true
+  otelAgent:
+    enabled: true
+  presets:
+    logsCollection:
+      enabled: true
+      blacklist:
+        enabled: true
+        signozLogs: false
+        namespaces:
+          - kube-system
+        pods:
+          - hotrod
+          - locust
+        containers: []
+        additionalExclude: []
+    kubernetesAttributes:
+      enabled: true
+    hostMetrics:
+      enabled: true
+    clusterMetrics:
+      enabled: true
 
 # otelCollector -- Central Gateway to ClickHouse
 otelCollector:
   enabled: true
+  serviceAccount:
+    create: true
   config:
     receivers:
       otlp:
