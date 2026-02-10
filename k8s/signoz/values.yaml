@@ -32,6 +32,12 @@ presets:
         - locust
       containers: []
       additionalExclude: []
+  kubernetesAttributes:
+    enabled: true
+
+# otelAgent -- DaemonSet for cluster-wide collection
+otelAgent:
+  enabled: true
 
 # otelCollector -- Central Gateway to ClickHouse
 otelCollector:
