@@ -85,6 +85,7 @@ otelCollector:
             - k8s.pod.name
             - k8s.pod.uid
             - k8s.deployment.name
+            - container.name
           labels:
             - tag_name: service.name
               key: service.name
