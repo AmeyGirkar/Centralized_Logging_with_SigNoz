@@ -18,84 +18,20 @@ signoz:
   persistence:
     storageClass: local-path
 
-# otelAgent -- DaemonSet for cluster-wide collection (Logs & Metrics)
-otelAgent:
-  enabled: true
-  # Mount host paths to read container logs
-  extraVolumes:
-    - name: varlogpods
-      hostPath:
-        path: /var/log/pods
-  extraVolumeMounts:
-    - name: varlogpods
-      mountPath: /var/log/pods
-      readOnly: true
-
-  config:
-    receivers:
-      # Scraping logs from all pods
-      filelog:
-        include:
-          - /var/log/pods/*/*/*.log
-        exclude:
-          - /var/log/pods/signoz_*/*/*.log
-          - /var/log/pods/kube-system_*/*/*.log
-        start_at: end
-        include_file_path: true
-        operators:
-          - type: container
-            id: container-parser
-      
-      # Scraping host and kubelet metrics
-      hostmetrics:
-        scrapers:
-          cpu:
-          load:
-          memory:
-          disk:
-          network:
-          filesystem:
-      kubeletstats:
-        endpoint: ${env:K8S_NODE_IP}:10250
-        auth_type: tls
-        insecure_skip_verify: true
-
-    processors:
-      batch:
-        send_batch_size: 1000
-        timeout: 10s
-      resourcedetection:
-        detectors: [env, system]
-        timeout: 2s
-        override: false
-      k8sattributes:
-        extract:
-          metadata:
-            - k8s.namespace.name
-            - k8s.pod.name
-            - k8s.pod.uid
-            - k8s.deployment.name
-          labels:
-            - tag_name: service.name
-              key: service.name
-              from: pod
-
-    exporters:
-      otlp:
-        endpoint: "signoz-otel-collector.signoz.svc.cluster.local:4317"
-        tls:
-          insecure: true
-
-    service:
-      pipelines:
-        metrics:
-          receivers: [otlp, hostmetrics, kubeletstats]
-          processors: [resourcedetection, k8sattributes, batch]
-          exporters: [otlp]
-        logs:
-          receivers: [otlp, filelog]
-          processors: [resourcedetection, k8sattributes, batch]
-          exporters: [otlp]
+# presets -- Standard SigNoz configurations for log/metric collection
+presets:
+  logsCollection:
+    enabled: true
+    blacklist:
+      enabled: true
+      signozLogs: false
+      namespaces:
+        - kube-system
+      pods:
+        - hotrod
+        - locust
+      containers: []
+      additionalExclude: []
 
 # otelCollector -- Central Gateway to ClickHouse
 otelCollector:
