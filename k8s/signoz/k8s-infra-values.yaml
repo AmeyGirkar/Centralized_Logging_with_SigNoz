@@ -1,0 +1,28 @@
+# k8s-infra-values.yaml -- Configuration for SigNoz Agents
+otelCollector:
+  enabled: false # Disable the standalone collector, we use the one in 'signoz'
+
+otelAgent:
+  enabled: true
+
+presets:
+  logsCollection:
+    enabled: true
+    blacklist:
+      enabled: true
+      signozLogs: false
+      namespaces:
+        - kube-system
+      pods:
+        - hotrod
+        - locust
+  hostMetrics:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+  clusterMetrics:
+    enabled: true
+
+# Redirect all data to the central collector installed by the 'signoz' chart
+otlpExporter:
+  endpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
